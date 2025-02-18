@@ -1,0 +1,3 @@
+#!/bin/bash
+
+wine /opt/ibo-view.20211019-RevA/bin/IboView.exe $1
