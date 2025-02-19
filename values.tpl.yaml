@@ -8,9 +8,10 @@ image:
 resources:
   limits:
     cpu: {{ cpu_num }}
+    memory: {{ mem }}
   requests:
-    cpu: 50m
-    memory: 256Mi
+    cpu: {{ cpu_requests }}
+    memory: {{ mem_requests }}
 
 nodeSelector:
   openmpi-capable: "true"
@@ -19,7 +20,8 @@ sharedVolume:
   enabled: false
 
 sharedMemory:
-  enabled: false
+  enabled: {{ shm }}
+  size: {{ shm_size }}
 
 settings:
   taskMultiplier: 1
@@ -30,9 +32,9 @@ settings:
       if [ "${NODE_NAME##*-}" = "0" ]; then
         unset OMPI_MCA_orte_default_hostfile;
         mkdir -p ~/results && cd ~/results;
-        cat /tools/hosts | sed -e "s/\.[0-9a-zA-Z-]* / /g" -e "s/ max_slots=[0-9]*//g" -e "s/slots=/cpu=/g" > ~/results/results.nodes
+        cat /tools/hosts | sed -e "s/\.[0-9a-zA-Z-]* / /g" -e "s/ max_slots=[0-9]*//g" -e "s/slots=/cpu=/g" > ~/results/results.nodes;
         echo -e '{{ file | replace("\n", "\\n") }}' > results.inp;
-        "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca`/orca" results.inp > results.out "--use-hwthread-cpus{{ additional_params }}";
+        "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca | head -n 1`/orca" results.inp "--use-hwthread-cpus{{ additional_params }}" | tee results.out;
         cd .. ;
         zip -r  results.zip results;
         cat results.zip | curl --header "X-Api-Key: {{ token }}" -X POST -T - http://{{ pod_ip }}:8888/upload || true;

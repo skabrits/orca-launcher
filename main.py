@@ -7,6 +7,7 @@ import signal
 import socket
 import sys
 import os
+import re
 
 
 PID = os.getpid()
@@ -22,8 +23,28 @@ def get_cpu_data():
     res = subprocess.run(
         "kubectl top -l openmpi-capable=true nodes  | tail -n +2 | tr -d 'm%' | awk '{print int($2 * (100 / $3 - 1) / 1000) - 2}'",
         capture_output=True, shell=True)
-    cpus = [int(x) for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    cpus = [max(int(x), 1) for x in res.stdout.decode("utf-8").split("\n") if x != ""]
     return cpus
+
+
+def get_available_cpu_data():
+    res = subprocess.run(["/bin/bash", "-c", "paste -d' ' <(kubectl describe nodes -l openmpi-capable=true | grep -A11 \"Allocated resources\" | grep -A10 \"\\----\" | grep -v \"\\---\" | grep cpu | awk '{gsub(\"m\",\"\");print $2/1000}') <(kubectl get nodes -l openmpi-capable=true -o jsonpath='{.items[*].status.allocatable.cpu}' | sed \"s/ /\\n/g\") | awk '{printf \"%dm\\n\", ($2-$1)*1000}'"], capture_output=True, shell=False)
+    cpus = [str(max(int(x[:-1]), 500))+x[-1:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    return cpus
+
+
+def get_mem_data():
+    res = subprocess.run(
+        "kubectl top -l openmpi-capable=true nodes  | tail -n +2 | tr -d 'm%' | awk '{printf \"%dMi\\n\", int($4 * (100 / $5 - 1)) - 4000}'",
+        capture_output=True, shell=True)
+    mem = [str(max(int(x[:-2]), 1000))+x[-2:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    return mem
+
+
+def get_available_mem_data():
+    res = subprocess.run(["/bin/bash", "-c", "paste -d' ' <(kubectl describe nodes -l openmpi-capable=true | grep -A11 \"Allocated resources\" | grep -A10 \"\\----\" | grep -v \"\\---\" | grep memory | awk '{gsub(\"Mi\",\"\");print $2}') <(kubectl get nodes -l openmpi-capable=true -o jsonpath='{.items[*].status.allocatable.memory}' | sed \"s/ /\\n/g\" | awk '{gsub(\"Ki\",\"\");print $1/1000}') | awk '{printf \"%dMi\\n\", $2-$1}'"], capture_output=True, shell=False)
+    mem = [str(max(int(x[:-2]), 512))+x[-2:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    return mem
 
 
 def cleanup():
@@ -41,22 +62,64 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 if "--help" in sys.argv or "-h" in sys.argv:
-    print("Takes .inp file and any set of args to pass to orca function.")
+    print("\nTakes .inp file and any set of args to pass to orca function.\n")
     print("If .inp file contains entry 'nprocs 0' it will be replaced")
-    print("         with number of available processes automatically.")
-    print("Use 'orca-executor show nproc' to see available cpus in cluster.")
-    print("Use environment variable ORCA_NODES to overwrite number of worker nodes")
-    print("                                       useful for one node computations.")
+    print("          with number of available processes automatically.\n")
+    print("If .inp file contains entry 'maxcore 0' it will be replaced")
+    print("              with calculated memory per core automatically.\n")
+    print("Use 'orca-executor show nproc' to see available cpus in cluster.\n")
+    print("Use 'orca-executor show logs' to see orca logs.\n")
+    print("Use environment variable ORCA_NODES to overwrite number of worker nodes,")
+    print("                                       useful for one node computations.\n")
+    print("Use environment variable ORCA_SHARED_MEMORY_ENABLED to mount external volume for shared memory,")
+    print("                    useful if you run out of memory, possible values: true/false, default: true.\n")
+    print("Use environment variable ORCA_SHARED_MEMORY_SIZE to set shared memory size if enabled,")
+    print("                         possible values: XGi/XMi/XKi, where X - integer, default: 2Gi.\n")
+    print("Use 'orca-executor exit' to finish orca gracefully.\n")
     sys.exit(0)
 
-if sys.argv[1] == "show":
-    if sys.argv[2] == "nproc":
-        cpus = get_cpu_data()
-        print(min(cpus) * len(cpus) - 1)
-        sys.exit(0)
+if sys.argv[1] == "exit":
+    res = subprocess.run(
+        "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"`echo $PATH | awk '\"'\"'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1'\"'\"' | grep orca | head -n 1`/orca results.inp\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+        capture_output=True, shell=True)
+    if res.returncode != 0:
+        print("Failed to terminate, perhaps not running?")
+        print(res.stderr.decode("utf-8"))
+        sys.exit(1)
     else:
-        print("Use 'orca-executor show nproc' to see available cpus in cluster")
+        res = subprocess.run(
+            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+            capture_output=True, shell=True)
+        print("Graceful shutdown initiated.")
         sys.exit(0)
+
+if sys.argv[1] == "show":
+    if len(sys.argv) > 2:
+        if sys.argv[2] == "nproc":
+            cpus = get_cpu_data()
+            print(min(cpus) * len(cpus) - 1)
+            sys.exit(0)
+        elif sys.argv[2] == "logs":
+            res = subprocess.run(
+                "kubectl logs orca-executor-openmpi-cluster-0",
+                capture_output=True, shell=True)
+            if res.returncode != 0:
+                print("Failed to get logs, perhaps not running?")
+                print(res.stderr.decode("utf-8"))
+                sys.exit(1)
+            else:
+                print(res.stdout.decode("utf-8"))
+                sys.exit(0)
+        else:
+            print("\nUnknown option")
+            print("Use 'orca-executor show nproc' to see available cpus in cluster")
+            print("Use 'orca-executor show logs' to see orca logs.")
+            sys.exit(1)
+    else:
+        print("\nUse 'orca-executor show nproc' to see available cpus in cluster")
+        print("Use 'orca-executor show logs' to see orca logs.")
+        sys.exit(0)
+
 
 app = Flask(__name__)
 app.config['UPLOAD_FILE'] = os.path.join(os.getcwd(), "results.zip")
@@ -66,15 +129,45 @@ with open(os.path.join(os.getcwd(), sys.argv[1])) as f:
     file_data = f.read()
 
 cpus = get_cpu_data()
-nproc = min(cpus) * len(cpus) - 1
+req_cpus = get_available_cpu_data()
+mem = get_mem_data()
+req_mem = get_available_mem_data()
+node_data = list(zip(cpus, req_cpus, mem, req_mem))
+node_data = sorted(node_data, key=lambda x: int(x[1][:-1]), reverse=True)
+node_count = len(node_data)
+replica_calculated = int(os.getenv("ORCA_NODES", node_count))
+node_data = node_data[:replica_calculated]
+
+base_cpu = min(list(zip(*node_data))[0])
+
+nproc = base_cpu * replica_calculated - 1
 
 file_data = file_data.replace("nprocs 0", f"nprocs {nproc}")
 
 if f"nprocs {nproc}" in file_data:
     print(f"Running on {nproc} cpus.")
 
+nproc_s = re.search(r"nprocs ([1-9][0-9]*)", file_data)
+
+if nproc_s:
+    maxcore = max(int(sum(map(lambda x: int(x[:-2]), list(zip(*node_data))[2])) / int(nproc_s.groups()[0])) - 700, 500)
+    file_data = file_data.replace("maxcore 0", f"maxcore {maxcore}")
+
+    if f"maxcore {maxcore}" in file_data:
+        print(f"Running with {maxcore} MB memory per cpu.")
+
+cr = str(min(map(lambda x: int(x[:-1]), list(zip(*node_data))[1]))-500) + node_data[0][1][-1:]
+m = str(min(map(lambda x: int(x[:-2]), list(zip(*node_data))[2]))+500) + node_data[0][2][-2:]
+mr = str(min(map(lambda x: int(x[:-2]), list(zip(*node_data))[3]))-2000) + node_data[0][3][-2:]
+
+if int(mr[:-2]) > int(m[:-2]):
+    mr = m
+
+if int(cr[:-1])/1000 > base_cpu+0.2:
+    cr = base_cpu+0.2
+
 jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH)).get_template("values.tpl.yaml")
-values_data = jinja2_template.render(token=app.config['AUTH_TOKEN'], pod_ip=POD_IP, file=file_data, cpu_num=min(cpus)+0.2, replica_num=os.getenv("ORCA_NODES", len(cpus)), additional_params=((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""))
+values_data = jinja2_template.render(token=app.config['AUTH_TOKEN'], pod_ip=POD_IP, file=file_data, cpu_num=base_cpu+0.2, cpu_requests=cr, mem=m, mem_requests=mr, replica_num=replica_calculated, additional_params=((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""), shm=os.getenv("ORCA_SHARED_MEMORY_ENABLED", "true"), shm_size=os.getenv("ORCA_SHARED_MEMORY_SIZE", "2Gi"))
 
 with open(os.path.join(SCRIPT_PATH, "values.yaml"), "w") as f:
     f.write(values_data)
