@@ -10,6 +10,10 @@ import os
 import re
 
 
+SAFETY_CPU_SUBTRAHEND = 2
+SAFETY_MEM_SUBTRAHEND = 1600
+SAFE_SCHEDULING = bool(os.getenv("SAFE_SCHEDULING", False))
+
 PID = os.getpid()
 try:
     SCRIPT_PATH = sys._MEIPASS
@@ -29,7 +33,7 @@ def get_cpu_data():
 
 def get_available_cpu_data():
     res = subprocess.run(["/bin/bash", "-c", "paste -d' ' <(kubectl describe nodes -l openmpi-capable=true | grep -A11 \"Allocated resources\" | grep -A10 \"\\----\" | grep -v \"\\---\" | grep cpu | awk '{gsub(\"m\",\"\");print $2/1000}') <(kubectl get nodes -l openmpi-capable=true -o jsonpath='{.items[*].status.allocatable.cpu}' | sed \"s/ /\\n/g\") | awk '{printf \"%dm\\n\", ($2-$1)*1000}'"], capture_output=True, shell=False)
-    cpus = [str(max(int(x[:-1]), 500))+x[-1:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    cpus = [str(max(int(x[:-1]), 550))+x[-1:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
     return cpus
 
 
@@ -43,7 +47,7 @@ def get_mem_data():
 
 def get_available_mem_data():
     res = subprocess.run(["/bin/bash", "-c", "paste -d' ' <(kubectl describe nodes -l openmpi-capable=true | grep -A11 \"Allocated resources\" | grep -A10 \"\\----\" | grep -v \"\\---\" | grep memory | awk '{gsub(\"Mi\",\"\");print $2}') <(kubectl get nodes -l openmpi-capable=true -o jsonpath='{.items[*].status.allocatable.memory}' | sed \"s/ /\\n/g\" | awk '{gsub(\"Ki\",\"\");print $1/1000}') | awk '{printf \"%dMi\\n\", $2-$1}'"], capture_output=True, shell=False)
-    mem = [str(max(int(x[:-2]), 512))+x[-2:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
+    mem = [str(max(int(x[:-2]), 2512))+x[-2:] for x in res.stdout.decode("utf-8").split("\n") if x != ""]
     return mem
 
 
@@ -71,6 +75,8 @@ if "--help" in sys.argv or "-h" in sys.argv:
     print("Use 'orca-executor show logs' to see orca logs.\n")
     print("Use environment variable ORCA_NODES to overwrite number of worker nodes,")
     print("                                       useful for one node computations.\n")
+    print("Use environment variable SAFE_SCHEDULING to enforce using maximum guaranteed cpus and memory instead of maximum potentially available,")
+    print("                                  useful to avoid crashes due to resource over-scheduling, possible values: true/false, default: false.\n")
     print("Use environment variable ORCA_SHARED_MEMORY_ENABLED to mount external volume for shared memory,")
     print("                    useful if you run out of memory, possible values: true/false, default: true.\n")
     print("Use environment variable ORCA_SHARED_MEMORY_SIZE to set shared memory size if enabled,")
@@ -97,7 +103,11 @@ if sys.argv[1] == "show":
     if len(sys.argv) > 2:
         if sys.argv[2] == "nproc":
             cpus = get_cpu_data()
-            print(min(cpus) * len(cpus) - 1)
+            if SAFE_SCHEDULING:
+                s_cpus = get_available_cpu_data()
+                print(min(s_cpus) * len(s_cpus))
+            else:
+                print(min(cpus) * len(cpus) - SAFETY_CPU_SUBTRAHEND)
             sys.exit(0)
         elif sys.argv[2] == "logs":
             res = subprocess.run(
@@ -140,7 +150,10 @@ node_data = node_data[:replica_calculated]
 
 base_cpu = min(list(zip(*node_data))[0])
 
-nproc = base_cpu * replica_calculated - 1
+if SAFE_SCHEDULING:
+    nproc = min(list(zip(*node_data))[1]) * replica_calculated
+else:
+    nproc = base_cpu * replica_calculated - SAFETY_CPU_SUBTRAHEND
 
 file_data = file_data.replace("nprocs 0", f"nprocs {nproc}")
 
@@ -150,7 +163,7 @@ if f"nprocs {nproc}" in file_data:
 nproc_s = re.search(r"nprocs ([1-9][0-9]*)", file_data)
 
 if nproc_s:
-    maxcore = max(int(sum(map(lambda x: int(x[:-2]), list(zip(*node_data))[2])) / int(nproc_s.groups()[0])) - 700, 500)
+    maxcore = max(int(sum(map(lambda x: int(x[:-2]), list(zip(*node_data))[2 if not SAFE_SCHEDULING else 3])) / int(nproc_s.groups()[0])) - SAFETY_MEM_SUBTRAHEND, 500)
     file_data = file_data.replace("maxcore 0", f"maxcore {maxcore}")
 
     if f"maxcore {maxcore}" in file_data:
