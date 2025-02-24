@@ -14,6 +14,8 @@ SAFETY_CPU_SUBTRAHEND = 2
 SAFETY_MEM_SUBTRAHEND = 1600
 SAFE_SCHEDULING = bool(os.getenv("SAFE_SCHEDULING", False))
 
+token_path = os.path.join(os.getcwd(), "results.token")
+
 PID = os.getpid()
 try:
     SCRIPT_PATH = sys._MEIPASS
@@ -21,6 +23,18 @@ except AttributeError:
     SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 POD_IP = socket.gethostbyname(socket.gethostname())
 OK = False
+
+
+def template_values(token, pod_ip, file_data, cpu_num, cpu_requests, mem, memory_requests, replica_num, aditional_params):
+    jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH)).get_template("values.tpl.yaml")
+    values_data = jinja2_template.render(token=token, pod_ip=pod_ip, file=file_data,
+                                         cpu_num=cpu_num, cpu_requests=cpu_requests, mem=mem, mem_requests=memory_requests,
+                                         replica_num=replica_num, additional_params=aditional_params,
+                                         shm=os.getenv("ORCA_SHARED_MEMORY_ENABLED", "true"),
+                                         shm_size=os.getenv("ORCA_SHARED_MEMORY_SIZE", "2Gi"))
+
+    with open(os.path.join(SCRIPT_PATH, "values.yaml"), "w") as f:
+        f.write(values_data)
 
 
 def get_cpu_data():
@@ -55,6 +69,7 @@ def cleanup():
     res = subprocess.run(
         f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl delete -f -",
         capture_output=True, shell=True)
+    os.remove(token_path)
     if res.returncode != 0:
         print(res.stderr.decode("utf-8"))
         return Response("Error cleaning up", status=400)
@@ -142,11 +157,12 @@ def run_app():
 
 
 app.config['UPLOAD_FILE'] = os.path.join(os.getcwd(), "results.zip")
-token_path = os.path.join(os.getcwd(), "results.token")
 
 if os.path.exists(token_path):
     with open(token_path, 'r') as f:
         app.config['AUTH_TOKEN'] = f.read()
+    print("Calculations already running! Waiting for the result.")
+    template_values(app.config['AUTH_TOKEN'], "127.0.0.1", "Hello world!", "2", "1", "2500Mi", "2000Mi", 1, "")
     run_app()
     sys.exit(0)
 else:
@@ -198,11 +214,7 @@ if int(mr[:-2]) > int(m[:-2]):
 if int(cr[:-1])/1000 > base_cpu+0.2:
     cr = base_cpu+0.2
 
-jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH)).get_template("values.tpl.yaml")
-values_data = jinja2_template.render(token=app.config['AUTH_TOKEN'], pod_ip=POD_IP, file=file_data, cpu_num=base_cpu+0.2, cpu_requests=cr, mem=m, mem_requests=mr, replica_num=replica_calculated, additional_params=((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""), shm=os.getenv("ORCA_SHARED_MEMORY_ENABLED", "true"), shm_size=os.getenv("ORCA_SHARED_MEMORY_SIZE", "2Gi"))
-
-with open(os.path.join(SCRIPT_PATH, "values.yaml"), "w") as f:
-    f.write(values_data)
+template_values(app.config['AUTH_TOKEN'], POD_IP, file_data, base_cpu + 0.2, cr, m, mr, replica_calculated, ((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""))
 
 res = subprocess.run(f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl apply -f -", capture_output=True, shell=True)
 if res.returncode != 0:
