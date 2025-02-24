@@ -66,6 +66,7 @@ def get_available_mem_data():
 
 
 def cleanup():
+    print("cleaning up...")
     res = subprocess.run(
         f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl delete -f -",
         capture_output=True, shell=True)
@@ -73,6 +74,7 @@ def cleanup():
     if res.returncode != 0:
         print(res.stderr.decode("utf-8"))
         return Response("Error cleaning up", status=400)
+    print("Finished cleaning!")
 
 
 if len(sys.argv) < 2:
