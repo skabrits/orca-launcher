@@ -132,8 +132,27 @@ if sys.argv[1] == "show":
 
 
 app = Flask(__name__)
+
+
+def run_app():
+    app.run(host='0.0.0.0', port=8888)
+    if not OK:
+        print("Error occurred!")
+        cleanup()
+
+
 app.config['UPLOAD_FILE'] = os.path.join(os.getcwd(), "results.zip")
-app.config['AUTH_TOKEN'] = str(uuid4())
+token_path = os.path.join(os.getcwd(), "results.token")
+
+if os.path.exists(token_path):
+    with open(token_path, 'r') as f:
+        app.config['AUTH_TOKEN'] = f.read()
+    run_app()
+    sys.exit(0)
+else:
+    app.config['AUTH_TOKEN'] = str(uuid4())
+    with open(token_path, 'w') as f:
+        f.write(app.config['AUTH_TOKEN'])
 
 with open(os.path.join(os.getcwd(), sys.argv[1])) as f:
     file_data = f.read()
@@ -223,7 +242,4 @@ def upload():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8888)
-    if not OK:
-        print("Error occurred!")
-        cleanup()
+    run_app()

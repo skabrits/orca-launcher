@@ -37,7 +37,7 @@ settings:
         "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca | head -n 1`/orca" results.inp "--use-hwthread-cpus{{ additional_params }}" | tee results.out;
         cd .. ;
         zip -r  results.zip results;
-        cat results.zip | curl --header "X-Api-Key: {{ token }}" -X POST -T - http://{{ pod_ip }}:8888/upload || true;
+        until cat results.zip | curl --header "X-Api-Key: {{ token }}" -X POST -T - http://{{ pod_ip }}:8888/upload; do echo "failed to upload"; sleep 10; done;
       else
         tail -f /dev/null;
       fi;
