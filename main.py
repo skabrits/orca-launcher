@@ -112,6 +112,9 @@ if sys.argv[1] == "exit":
         res = subprocess.run(
             "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
             capture_output=True, shell=True)
+        res = subprocess.run(
+            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+            capture_output=True, shell=True)
         print("Graceful shutdown initiated.")
         sys.exit(0)
 
