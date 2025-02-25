@@ -92,8 +92,7 @@ if "--help" in sys.argv or "-h" in sys.argv:
     print("Use 'orca-executor show logs' to see orca logs.\n")
     print("Use environment variable ORCA_NODES to overwrite number of worker nodes,")
     print("                                       useful for one node computations.\n")
-    print("Use environment variable SAFE_SCHEDULING to enforce using maximum guaranteed cpus and memory instead of maximum potentially available,")
-    print("                                  useful to avoid crashes due to resource over-scheduling, possible values: true/false, default: false.\n")
+    print("Use environment variable SAFE_SCHEDULING to enforce using maximum guaranteed cpus and memory instead of maximum potentially available, useful to avoid crashes due to resource over-scheduling, possible values: true/false, default: false.\n")
     print("Use environment variable ORCA_SHARED_MEMORY_ENABLED to mount external volume for shared memory,")
     print("                    useful if you run out of memory, possible values: true/false, default: true.\n")
     print("Use environment variable ORCA_SHARED_MEMORY_SIZE to set shared memory size if enabled,")
@@ -121,7 +120,7 @@ if sys.argv[1] == "show":
         if sys.argv[2] == "nproc":
             cpus = get_cpu_data()
             if SAFE_SCHEDULING:
-                s_cpus = get_available_cpu_data()
+                s_cpus = list(map(lambda x: int(x[:-1])//1000, get_available_cpu_data()))
                 print(min(s_cpus) * len(s_cpus))
             else:
                 print(min(cpus) * len(cpus) - SAFETY_CPU_SUBTRAHEND)
@@ -188,7 +187,7 @@ node_data = node_data[:replica_calculated]
 base_cpu = min(list(zip(*node_data))[0])
 
 if SAFE_SCHEDULING:
-    nproc = min(list(zip(*node_data))[1]) * replica_calculated
+    nproc = min(map(lambda x: int(x[:-1]) // 1000, list(zip(*node_data))[1])) * replica_calculated
 else:
     nproc = base_cpu * replica_calculated - SAFETY_CPU_SUBTRAHEND
 
