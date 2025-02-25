@@ -162,7 +162,7 @@ app.config['UPLOAD_FILE'] = os.path.join(os.getcwd(), "results.zip")
 
 if os.path.exists(token_path):
     with open(token_path, 'r') as f:
-        app.config['AUTH_TOKEN'] = f.read()
+        app.config['AUTH_TOKEN'] = f.read().replace("\n", "")
     print("Calculations already running! Waiting for the result.")
     template_values(app.config['AUTH_TOKEN'], "127.0.0.1", "Hello world!", "2", "1", "2500Mi", "2000Mi", 1, "")
     run_app()
