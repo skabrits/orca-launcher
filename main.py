@@ -12,7 +12,7 @@ import re
 
 SAFETY_CPU_SUBTRAHEND = 2
 SAFETY_MEM_SUBTRAHEND = 1600
-SAFE_SCHEDULING = bool(os.getenv("SAFE_SCHEDULING", False))
+SAFE_SCHEDULING = os.getenv("SAFE_SCHEDULING", "False").strip().lower() == "true"
 
 token_path = os.path.join(os.getcwd(), "results.token")
 
