@@ -138,6 +138,8 @@ if sys.argv[1] == "show":
                 sys.exit(1)
             else:
                 print(res.stdout.decode("utf-8"))
+                with open("tmp.out", 'w') as f:
+                    f.write(res.stdout.decode("utf-8"))
                 sys.exit(0)
         else:
             print("\nUnknown option")
