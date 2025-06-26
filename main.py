@@ -15,6 +15,7 @@ SAFETY_MEM_SUBTRAHEND = 1600
 SAFE_SCHEDULING = os.getenv("SAFE_SCHEDULING", "False").strip().lower() == "true"
 
 token_path = os.path.join(os.getcwd(), "results.token")
+enso_file_path = os.path.join(os.getcwd(), ".ensorc")
 
 PID = os.getpid()
 try:
@@ -68,7 +69,7 @@ def get_available_mem_data():
 def cleanup():
     print("cleaning up...")
     res = subprocess.run(
-        f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl delete -f -",
+        f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} {f'--set extraFiles[0].path=/opt/enso/config --set-file extraFiles[0].file={enso_file_path}' if os.path.isfile(enso_file_path) else ''} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl delete -f -",
         capture_output=True, shell=True)
     os.remove(token_path)
     if res.returncode != 0:
@@ -222,7 +223,7 @@ if int(cr[:-1])/1000 > base_cpu+0.2:
 
 template_values(app.config['AUTH_TOKEN'], POD_IP, file_data, base_cpu + 0.2, cr, m, mr, replica_calculated, ((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""))
 
-res = subprocess.run(f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl apply -f -", capture_output=True, shell=True)
+res = subprocess.run(f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} {f'--set extraFiles[0].path=/opt/enso/config --set-file extraFiles[0].file={enso_file_path}' if os.path.isfile(enso_file_path) else ''} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl apply -f -", capture_output=True, shell=True)
 if res.returncode != 0:
     print("Failed to deploy orca-mpi cluster")
     print(res.stderr.decode("utf-8"))

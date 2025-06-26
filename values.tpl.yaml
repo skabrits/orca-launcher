@@ -3,7 +3,7 @@ replicaCount: {{ replica_num }}
 image:
   repository: skabrits/orca
   pullPolicy: Always
-  tag: "0.1.0"
+  tag: "0.2.0"
 
 resources:
   limits:
