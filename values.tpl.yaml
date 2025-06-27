@@ -34,7 +34,12 @@ settings:
         mkdir -p ~/results && cd ~/results;
         cat /tools/hosts | sed -e "s/\.[0-9a-zA-Z-]* / /g" -e "s/ max_slots=[0-9]*//g" -e "s/slots=/cpu=/g" > ~/results/results.nodes;
         echo -e '{{ file | replace("\n", "\\n") }}' > results.inp;
-        "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca | head -n 1`/orca" results.inp "--use-hwthread-cpus{{ additional_params }}" | tee results.out;
+        echo -e '{{ custom_script  | replace("\\n", "\\\\n") | replace("\n", "\\n")  | replace("'", "'\"'\"'")}}' > run.sh && chmod +x run.sh;
+        if [ -z "$(cat run.sh)" ]; then
+          "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca | head -n 1`/orca" results.inp "--use-hwthread-cpus{{ additional_params }}" | tee results.out;
+        else
+          ./run.sh | tee results.out
+        fi;
         cd .. ;
         zip -r  results.zip results;
         until cat results.zip | curl --header "X-Api-Key: {{ token }}" -X POST -T - http://{{ pod_ip }}:8888/upload; do echo "failed to upload"; sleep 10; done;
