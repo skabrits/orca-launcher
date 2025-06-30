@@ -155,7 +155,7 @@ omp: 0                                     # number e.g. 4\n""")
 
 if sys.argv[1] == "exit":
     res = subprocess.run(
-        "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"`echo $PATH | awk '\"'\"'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1'\"'\"' | grep orca | head -n 1`/orca results.inp\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+        "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"`echo $PATH | awk '\"'\"'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1'\"'\"' | grep orca | head -n 1`/orca results.inp\" | awk '\"'\"'{print $2}'\"'\"' | head -n-1 | xargs -I {} kill -9 {}'",
         capture_output=True, shell=True)
     if res.returncode != 0:
         print("Failed to terminate, perhaps not running?")
@@ -163,10 +163,10 @@ if sys.argv[1] == "exit":
         sys.exit(1)
     else:
         res = subprocess.run(
-            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | head -n-1 | xargs -I {} kill -9 {}'",
             capture_output=True, shell=True)
         res = subprocess.run(
-            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | xargs -I {} kill -9 {}'",
+            "kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{print $2}'\"'\"' | head -n-1 | xargs -I {} kill -9 {}'",
             capture_output=True, shell=True)
         print("Graceful shutdown initiated.")
         sys.exit(0)
