@@ -36,7 +36,7 @@ settings:
         echo -e '{{ file | replace("\n", "\\n") }}' > results.inp;
         echo -e '{{ custom_script  | replace("\\n", "\\\\n") | replace("\n", "\\n")  | replace("'", "'\"'\"'")}}' > run.sh && chmod +x run.sh;
         if [ -z "$(cat run.sh)" ]; then
-          "`echo $PATH | awk 'BEGIN{FS=":"; OFS="\n"} {$1=$1} 1' | grep orca | head -n 1`/orca" results.inp "--use-hwthread-cpus{{ additional_params }}" | tee results.out;
+          << command >> | tee results.out;
         else
           ./run.sh | tee results.out
         fi;

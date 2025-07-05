@@ -1,5 +1,6 @@
 from flask import Flask, request, Response
 from uuid import uuid4
+from time import sleep
 import subprocess
 import zipfile
 import jinja2
@@ -14,6 +15,15 @@ SAFETY_CPU_SUBTRAHEND = 2
 SAFETY_MEM_SUBTRAHEND = 1600
 SAFE_SCHEDULING = os.getenv("SAFE_SCHEDULING", "False").strip().lower() == "true"
 
+RUN_MODES = {
+    "ORCA": "`echo $PATH | awk 'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1' | grep orca | head -n 1`/orca\" results.inp \"--use-hwthread-cpus{{ additional_params }}\"",
+    "CREST": "/bin/crest {{ additional_params }}",
+    "XTB": "/opt/xtb-dist/bin/xtb {{ additional_params }}",
+    "MANUAL": "tail -f /dev/null"
+}
+
+RUN_MODE = "ORCA"
+
 token_path = os.path.join(os.getcwd(), "results.token")
 enso_file_path = os.path.join(os.getcwd(), ".ensorc")
 custom_script_file_path = os.path.join(os.getcwd(), "run.sh")
@@ -27,8 +37,17 @@ POD_IP = socket.gethostbyname(socket.gethostname())
 OK = False
 
 
+def template_command(command):
+    jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH), variable_start_string='<<', variable_end_string='>>').get_template("values.tpl.yaml")
+    values_data = jinja2_template.render(command=command)
+
+    with open(os.path.join(SCRIPT_PATH, "values.ready.yaml"), "w") as f:
+        f.write(values_data)
+
+
 def template_values(token, pod_ip, file_data, cpu_num, cpu_requests, mem, memory_requests, replica_num, aditional_params, custom_script_file_data):
-    jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH)).get_template("values.tpl.yaml")
+    template_command(RUN_MODES[RUN_MODE])
+    jinja2_template = jinja2.Environment(loader=jinja2.FileSystemLoader(SCRIPT_PATH)).get_template("values.ready.yaml")
     values_data = jinja2_template.render(token=token, pod_ip=pod_ip, file=file_data,
                                          cpu_num=cpu_num, cpu_requests=cpu_requests, mem=mem, mem_requests=memory_requests,
                                          replica_num=replica_num, additional_params=aditional_params,
@@ -67,6 +86,11 @@ def get_available_mem_data():
     return mem
 
 
+def is_master_ready():
+    res = subprocess.run("kubectl get po | grep orca-executor-openmpi-cluster-0 | awk '{print $2}'", capture_output=True, shell=True)
+    return res.stdout.decode("utf-8").split("\n")[0] == "1/1"
+
+
 def cleanup():
     print("cleaning up...")
     res = subprocess.run(
@@ -100,6 +124,8 @@ if "--help" in sys.argv or "-h" in sys.argv:
     print("Use environment variable ORCA_SHARED_MEMORY_SIZE to set shared memory size if enabled,")
     print("                         possible values: XGi/XMi/XKi, where X - integer, default: 2Gi.\n")
     print("Use 'orca-executor exit' to finish orca gracefully.\n")
+    print("\nTo run different programs choose mode by typing 'orca-executor run MODE', where MODE is one of following:")
+    print(f"                                                                      {', '.join(map(lambda s: s.lower(), RUN_MODES.keys()))}.\n")
     print("\nTo run custom calculations, e.g. enso, place your bash code in run.sh file.\n")
     print("ORCA fullpath can be obtained with the command \"`echo $PATH | awk 'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1' | grep orca | head -n 1`/orca\".\n")
     print("\nFor running enso calculations place .ensorc file in the same directory with following config:\n")
@@ -204,6 +230,29 @@ if sys.argv[1] == "show":
         print("Use 'orca-executor show logs' to see orca logs.")
         sys.exit(0)
 
+if sys.argv[1] == "run":
+    if len(sys.argv) > 2:
+        if sys.argv[2] == "manual":
+            RUN_MODE = "MANUAL"
+        else:
+            print(f"\nNo file passed! Try 'orca-executor file.in run {sys.argv[2]}'.")
+            sys.exit(1)
+    else:
+        print(f"\nAvailable modes: {', '.join(map(lambda s: s.lower(), RUN_MODES.keys()))}; default: {RUN_MODE.lower()}.")
+        sys.exit(0)
+
+if len(sys.argv) > 2:
+    if sys.argv[2] == "run":
+        if len(sys.argv) > 3:
+            RUN_MODE = sys.argv[3].upper()
+            if RUN_MODE not in RUN_MODES.keys():
+                print("\nUnknown option")
+                print(f"Available modes: {', '.join(map(lambda s: s.lower(), RUN_MODES.keys()))}.")
+                sys.exit(1)
+        else:
+            print(f"\nAvailable modes: {', '.join(map(lambda s: s.lower(), RUN_MODES.keys()))}; default: {RUN_MODE.lower()}.")
+            sys.exit(0)
+
 
 app = Flask(__name__)
 
@@ -259,8 +308,11 @@ else:
     with open(token_path, 'w') as f:
         f.write(app.config['AUTH_TOKEN'])
 
-with open(os.path.join(os.getcwd(), sys.argv[1])) as f:
-    file_data = f.read()
+if RUN_MODE != "MANUAL":
+    with open(os.path.join(os.getcwd(), sys.argv[1])) as f:
+        file_data = f.read()
+else:
+    file_data = ''
 
 if os.path.isfile(custom_script_file_path):
     with open(custom_script_file_path) as f:
@@ -275,7 +327,7 @@ req_mem = get_available_mem_data()
 node_data = list(zip(cpus, req_cpus, mem, req_mem))
 node_data = sorted(node_data, key=lambda x: int(x[1][:-1]), reverse=True)
 node_count = len(node_data)
-replica_calculated = int(os.getenv("ORCA_NODES", node_count))
+replica_calculated = int(os.getenv("ORCA_NODES", node_count)) if RUN_MODE == "ORCA" else 1
 node_data = node_data[:replica_calculated]
 
 base_cpu = min(list(zip(*node_data))[0])
@@ -319,4 +371,10 @@ if res.returncode != 0:
 
 
 if __name__ == '__main__':
+    if RUN_MODE == "MANUAL":
+        print("Starting orca environment...", end='')
+        while not is_master_ready():
+            print(".", end='')
+            sleep(5)
+        os.system(f"konsole -e bash -c \"kubectl cp {os.getcwd()} orca-executor-openmpi-cluster-0:/home/mpiuser/results/; echo 'Connected to orca environment!'; kubectl exec -it orca-executor-openmpi-cluster-0 -- bash; kubectl exec orca-executor-openmpi-cluster-0 -- bash -c 'ps -aux | grep \"tee\" | awk '\"'\"'{{print $2}}'\"'\"' | head -n-1 | xargs -I {{}} kill -9 {{}}'\" &")
     run_app()
