@@ -17,8 +17,8 @@ SAFE_SCHEDULING = os.getenv("SAFE_SCHEDULING", "False").strip().lower() == "true
 
 RUN_MODES = {
     "ORCA": "`echo $PATH | awk 'BEGIN{FS=\":\"; OFS=\"\\n\"} {$1=$1} 1' | grep orca | head -n 1`/orca\" results.inp \"--use-hwthread-cpus{{ additional_params }}\"",
-    "CREST": "/bin/crest {{ additional_params }}",
-    "XTB": "/opt/xtb-dist/bin/xtb {{ additional_params }}",
+    "CREST": "/bin/crest{{ additional_params }}",
+    "XTB": "/opt/xtb-dist/bin/xtb{{ additional_params }}",
     "MANUAL": "tail -f /dev/null"
 }
 
@@ -361,7 +361,7 @@ if int(mr[:-2]) > int(m[:-2]):
 if int(cr[:-1])/1000 > base_cpu+0.2:
     cr = base_cpu+0.2
 
-template_values(app.config['AUTH_TOKEN'], POD_IP, file_data, base_cpu + 0.2, cr, m, mr, replica_calculated, ((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 else ""), custom_script_file_data)
+template_values(app.config['AUTH_TOKEN'], POD_IP, file_data, base_cpu + 0.2, cr, m, mr, replica_calculated, ((" " + " ".join(sys.argv[2:])) if len(sys.argv) > 2 and sys.argv[2] != "run" else ((" " + " ".join(sys.argv[4:]) if sys.argv[2] == "run" else "")), custom_script_file_data)
 
 res = subprocess.run(f"helm template orca-executor {os.path.join(SCRIPT_PATH, 'charts', 'openmpi-cluster')} {f'--set extraFiles[0].path=/opt/enso/config --set-file extraFiles[0].file={enso_file_path}' if os.path.isfile(enso_file_path) else ''} -f {os.path.join(SCRIPT_PATH, 'values.yaml')} | kubectl apply -f -", capture_output=True, shell=True)
 if res.returncode != 0:
