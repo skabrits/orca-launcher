@@ -1,4 +1,4 @@
-FROM skabrits/web-ubuntu:0.4.1 AS builder
+FROM linuxserver/webtop:ubuntu-kde AS builder
 
 USER 0
 
@@ -16,7 +16,7 @@ COPY charts ./charts
 
 RUN . .venv/bin/activate && pyinstaller --add-data="charts:charts" --add-data="values.tpl.yaml:." --onefile main.py && mkdir /build && mv ./dist/main /build/
 
-FROM skabrits/web-ubuntu:0.4.1
+FROM linuxserver/webtop:ubuntu-kde
 
 USER 0
 
