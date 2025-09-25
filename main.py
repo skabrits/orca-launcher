@@ -6,6 +6,7 @@ import zipfile
 import jinja2
 import signal
 import socket
+import shutil
 import sys
 import os
 import re
@@ -27,6 +28,7 @@ RUN_MODE = "ORCA"
 token_path = os.path.join(os.getcwd(), "results.token")
 enso_file_path = os.path.join(os.getcwd(), ".ensorc")
 custom_script_file_path = os.path.join(os.getcwd(), "run.sh")
+results_path = os.path.join(os.getcwd(), "results")
 
 PID = os.getpid()
 try:
@@ -271,8 +273,18 @@ def upload():
                 break
             f.write(chunk)
 
+    folder_of_results = os.path.dirname(app.config['UPLOAD_FILE'])
     with zipfile.ZipFile(app.config['UPLOAD_FILE'], 'r') as zip_ref:
-        zip_ref.extractall(os.path.dirname(app.config['UPLOAD_FILE']))
+        zip_ref.extractall(folder_of_results)
+
+    results_folder_basename = os.path.basename(folder_of_results)
+    renamed_results_folder = os.path.join(folder_of_results, results_folder_basename)
+    shutil.move(os.path.join(folder_of_results, "results"), renamed_results_folder)
+    for f in os.listdir(renamed_results_folder):
+        if "results" in f:
+            rf = f
+            rf.replace("results", results_folder_basename)
+            shutil.move(os.path.join(renamed_results_folder, f), os.path.join(renamed_results_folder, rf))
 
     os.remove(app.config['UPLOAD_FILE'])
 
